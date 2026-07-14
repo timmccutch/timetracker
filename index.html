@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+  <title>TimeTracker</title>
+  <meta name="description" content="Track time on your projects, run pomodoro sessions, and export CSV reports.">
+  <meta name="theme-color" content="#12141c">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="TimeTracker">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <h1>⏱ TimeTracker</h1>
+    <div id="running-indicator" class="running-indicator hidden">
+      <span class="pulse-dot"></span>
+      <span id="running-indicator-text"></span>
+    </div>
+  </header>
+
+  <main id="main">
+
+    <!-- ============ TRACK TAB ============ -->
+    <section id="tab-track" class="tab active">
+      <div class="card timer-card">
+        <div class="time-display" id="timer-display">00:00:00</div>
+        <div class="timer-status" id="timer-status">Ready to track</div>
+
+        <div class="form-group">
+          <label for="timer-project">Project</label>
+          <div class="project-row">
+            <select id="timer-project"></select>
+            <button class="btn btn-small btn-ghost" id="timer-new-project" title="New project">＋</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="timer-description">What are you working on?</label>
+          <textarea id="timer-description" rows="2" placeholder="e.g. Writing the quarterly report…"></textarea>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-primary btn-big" id="timer-start">▶ Start</button>
+          <button class="btn btn-warn btn-big hidden" id="timer-pause">⏸ Pause</button>
+          <button class="btn btn-primary btn-big hidden" id="timer-resume">▶ Resume</button>
+          <button class="btn btn-danger btn-big hidden" id="timer-stop">⏹ Stop &amp; Save</button>
+          <button class="btn btn-ghost hidden" id="timer-discard">Discard</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Today</h2>
+        <div class="today-summary" id="today-summary"></div>
+        <ul class="session-list" id="today-sessions"></ul>
+      </div>
+    </section>
+
+    <!-- ============ POMODORO TAB ============ -->
+    <section id="tab-pomodoro" class="tab">
+      <div class="card timer-card">
+        <div class="pomo-phase" id="pomo-phase">Focus</div>
+        <div class="time-display" id="pomo-display">25:00</div>
+        <div class="pomo-dots" id="pomo-dots"></div>
+
+        <div class="form-group">
+          <label for="pomo-project">Project</label>
+          <div class="project-row">
+            <select id="pomo-project"></select>
+            <button class="btn btn-small btn-ghost" id="pomo-new-project" title="New project">＋</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="pomo-description">What are you working on?</label>
+          <textarea id="pomo-description" rows="2" placeholder="e.g. Designing the landing page…"></textarea>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-primary btn-big" id="pomo-start">▶ Start</button>
+          <button class="btn btn-warn btn-big hidden" id="pomo-pause">⏸ Pause</button>
+          <button class="btn btn-primary btn-big hidden" id="pomo-resume">▶ Resume</button>
+          <button class="btn btn-ghost hidden" id="pomo-skip">Skip phase</button>
+          <button class="btn btn-danger hidden" id="pomo-reset">Reset</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Pomodoro settings</h2>
+        <div class="settings-grid">
+          <div class="form-group">
+            <label for="set-work">Focus (minutes)</label>
+            <input type="number" id="set-work" min="1" max="180" step="1">
+          </div>
+          <div class="form-group">
+            <label for="set-short">Short break (min)</label>
+            <input type="number" id="set-short" min="1" max="60" step="1">
+          </div>
+          <div class="form-group">
+            <label for="set-long">Long break (min)</label>
+            <input type="number" id="set-long" min="1" max="120" step="1">
+          </div>
+          <div class="form-group">
+            <label for="set-rounds">Focus rounds before long break</label>
+            <input type="number" id="set-rounds" min="1" max="12" step="1">
+          </div>
+        </div>
+        <div class="toggle-row">
+          <label class="toggle">
+            <input type="checkbox" id="set-sound">
+            <span>Alarm sound when a phase ends</span>
+          </label>
+          <label class="toggle">
+            <input type="checkbox" id="set-notify">
+            <span>Browser notification when a phase ends</span>
+          </label>
+          <label class="toggle">
+            <input type="checkbox" id="set-autobreak">
+            <span>Auto-start breaks</span>
+          </label>
+        </div>
+        <button class="btn btn-ghost" id="test-sound">🔊 Test alarm sound</button>
+      </div>
+    </section>
+
+    <!-- ============ PROJECTS TAB ============ -->
+    <section id="tab-projects" class="tab">
+      <div class="card">
+        <h2>New project</h2>
+        <div class="form-group">
+          <label for="project-name">Name</label>
+          <input type="text" id="project-name" placeholder="e.g. Client website" maxlength="60">
+        </div>
+        <div class="form-group">
+          <label>Color</label>
+          <div class="color-picker" id="color-picker"></div>
+        </div>
+        <button class="btn btn-primary" id="project-add">＋ Add project</button>
+      </div>
+
+      <div class="card">
+        <h2>Your projects</h2>
+        <ul class="project-list" id="project-list"></ul>
+      </div>
+    </section>
+
+    <!-- ============ REPORTS TAB ============ -->
+    <section id="tab-reports" class="tab">
+      <div class="card">
+        <h2>Reports</h2>
+        <div class="range-buttons" id="range-buttons">
+          <button class="btn btn-chip" data-range="today">Today</button>
+          <button class="btn btn-chip active" data-range="week">This week</button>
+          <button class="btn btn-chip" data-range="month">This month</button>
+          <button class="btn btn-chip" data-range="all">All time</button>
+          <button class="btn btn-chip" data-range="custom">Custom</button>
+        </div>
+        <div class="custom-range hidden" id="custom-range">
+          <div class="form-group">
+            <label for="range-from">From</label>
+            <input type="date" id="range-from">
+          </div>
+          <div class="form-group">
+            <label for="range-to">To</label>
+            <input type="date" id="range-to">
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="report-project-filter">Project</label>
+          <select id="report-project-filter"></select>
+        </div>
+
+        <div class="report-totals" id="report-totals"></div>
+        <div class="report-bars" id="report-bars"></div>
+
+        <button class="btn btn-primary" id="export-csv">⬇ Download CSV</button>
+      </div>
+
+      <div class="card">
+        <h2>☁️ OneDrive sync</h2>
+        <p class="sync-blurb">
+          Sync your projects and sessions to an Excel workbook
+          (<code>TimeTracker.xlsx</code>) in your OneDrive. Every device you
+          connect reads and writes the same spreadsheet, so your data stays
+          in sync — and you can open the workbook in Excel any time.
+        </p>
+
+        <div id="sync-setup">
+          <div class="form-group">
+            <label for="ms-client-id">Microsoft app Client ID <span class="muted">(one-time setup — see README)</span></label>
+            <input type="text" id="ms-client-id" placeholder="e.g. 12345678-abcd-…" autocomplete="off" spellcheck="false">
+          </div>
+          <button class="btn btn-primary" id="ms-connect">Connect to OneDrive</button>
+        </div>
+
+        <div id="sync-connected" class="hidden">
+          <div class="sync-status">
+            <div><span class="sync-ok">●</span> Connected as <strong id="ms-account"></strong></div>
+            <div class="muted" id="ms-last-sync"></div>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="ms-autosync">
+            <span>Sync automatically after each session</span>
+          </label>
+          <div class="btn-row" style="justify-content: flex-start;">
+            <button class="btn btn-primary" id="ms-sync-now">↻ Sync now</button>
+            <button class="btn btn-ghost" id="ms-disconnect">Disconnect</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Sessions <span class="muted" id="session-count"></span></h2>
+        <div class="table-wrap">
+          <table class="session-table">
+            <thead>
+              <tr>
+                <th>Date</th><th>Project</th><th>Description</th><th>Type</th>
+                <th>Start</th><th>End</th><th>Duration</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="report-rows"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <nav class="tab-bar">
+    <button class="tab-btn active" data-tab="track"><span class="tab-icon">⏱</span>Track</button>
+    <button class="tab-btn" data-tab="pomodoro"><span class="tab-icon">🍅</span>Pomodoro</button>
+    <button class="tab-btn" data-tab="projects"><span class="tab-icon">📁</span>Projects</button>
+    <button class="tab-btn" data-tab="reports"><span class="tab-icon">📊</span>Reports</button>
+  </nav>
+
+  <div class="toast hidden" id="toast"></div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
