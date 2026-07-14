@@ -1112,6 +1112,11 @@
       toast('Connect to OneDrive first');
       return;
     }
+    if (!navigator.onLine) {
+      // everything is already saved locally; the 'online' listener will sync later
+      if (!quiet) toast("You're offline — changes are saved here and will sync when you reconnect");
+      return;
+    }
     if (syncing) return;
     syncing = true;
     const btn = $('ms-sync-now');
@@ -1209,6 +1214,9 @@
       if (e.status === 401 || /invalid_grant|AADSTS/i.test(e.message)) {
         disconnect();
         toast('OneDrive sign-in expired — please reconnect', 6000);
+      } else if (!navigator.onLine || /failed to fetch|networkerror|load failed/i.test(e.message)) {
+        // connection dropped mid-sync; local data is intact, retry on reconnect
+        if (!quiet) toast("No connection — will sync when you're back online", 5000);
       } else {
         toast('Sync failed: ' + e.message, 6000);
       }
@@ -1249,6 +1257,10 @@
     $('ms-autosync').addEventListener('change', (e) => {
       ms.autoSync = e.target.checked;
       saveMs();
+    });
+    // catch up as soon as the connection comes back
+    window.addEventListener('online', () => {
+      if (msConnected() && ms.autoSync) syncNow(true);
     });
   }
 
