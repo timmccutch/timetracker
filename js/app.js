@@ -11,6 +11,8 @@
     sessions: 'tt_sessions',
     settings: 'tt_settings',
     running: 'tt_running',
+    tombstones: 'tt_tombstones',
+    ms: 'tt_ms',
   };
 
   const load = (key, fallback) => {
@@ -41,11 +43,14 @@
   // running: null | { mode:'timer'|'pomodoro', projectId, startedAt, segmentStart,
   //   accumulatedSec, paused, originalStart, phase, phaseTotalSec, completedRounds }
   let running = load(LS.running, null);
+  // ids deleted locally, remembered so deletions propagate through OneDrive sync
+  let tombstones = load(LS.tombstones, { sessions: [], projects: [] });
 
   const saveProjects = () => save(LS.projects, projects);
   const saveSessions = () => save(LS.sessions, sessions);
   const saveSettings = () => save(LS.settings, settings);
   const saveRunning = () => save(LS.running, running);
+  const saveTombstones = () => save(LS.tombstones, tombstones);
 
   /* ================= helpers ================= */
 
@@ -161,11 +166,12 @@
       toast('A project with that name already exists');
       return null;
     }
-    const project = { id: uid(), name, color: color || COLORS[projects.length % COLORS.length], archived: false, createdAt: now() };
+    const project = { id: uid(), name, color: color || COLORS[projects.length % COLORS.length], archived: false, createdAt: now(), updatedAt: now() };
     projects.push(project);
     saveProjects();
     renderProjects();
     renderProjectSelects();
+    scheduleAutoSync();
     return project;
   }
 
@@ -245,8 +251,10 @@
         const newName = prompt('Rename project:', p.name);
         if (newName && newName.trim()) {
           p.name = newName.trim();
+          p.updatedAt = now();
           saveProjects();
           renderAll();
+          scheduleAutoSync();
         }
       };
 
@@ -256,8 +264,10 @@
       archive.textContent = p.archived ? '📤' : '📥';
       archive.onclick = () => {
         p.archived = !p.archived;
+        p.updatedAt = now();
         saveProjects();
         renderAll();
+        scheduleAutoSync();
       };
 
       const del = document.createElement('button');
@@ -270,11 +280,17 @@
           ? `Delete "${p.name}" AND its ${n} tracked session${n > 1 ? 's' : ''}? This cannot be undone.`
           : `Delete "${p.name}"?`;
         if (!confirm(msg)) return;
+        tombstones.projects.push(p.id);
+        for (const s of sessions) {
+          if (s.projectId === p.id) tombstones.sessions.push(s.id);
+        }
+        saveTombstones();
         projects = projects.filter((x) => x.id !== p.id);
         sessions = sessions.filter((s) => s.projectId !== p.id);
         saveProjects();
         saveSessions();
         renderAll();
+        scheduleAutoSync();
       };
 
       li.append(dot, name, total, rename, archive, del);
@@ -366,6 +382,7 @@
     };
     sessions.push(session);
     saveSessions();
+    scheduleAutoSync();
     return session;
   }
 
@@ -745,9 +762,12 @@
       delBtn.textContent = '🗑';
       delBtn.onclick = () => {
         if (!confirm('Delete this session?')) return;
+        tombstones.sessions.push(s.id);
+        saveTombstones();
         sessions = sessions.filter((x) => x.id !== s.id);
         saveSessions();
         renderAll();
+        scheduleAutoSync();
       };
       tdDel.appendChild(delBtn);
       tr.appendChild(tdDel);
@@ -812,6 +832,424 @@
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 5000);
     toast(`Exported ${list.length} sessions`);
+  }
+
+  /* ================= OneDrive / Excel sync ================= */
+
+  // Two-way sync with an Excel workbook (TimeTracker.xlsx) in the user's
+  // OneDrive via Microsoft Graph. The workbook is the shared source of truth
+  // across devices: the Sessions/Projects tables hold the data, and the
+  // Deleted table propagates deletions between devices. Requires a free
+  // Microsoft Entra app registration; paste its Client ID once per device
+  // (setup steps in the README).
+
+  const MS_AUTH_BASE = 'https://login.microsoftonline.com/common/oauth2/v2.0';
+  const MS_SCOPES = 'Files.ReadWrite User.Read offline_access';
+  const GRAPH = 'https://graph.microsoft.com/v1.0';
+  const WORKBOOK_PATH = '/me/drive/root:/TimeTracker.xlsx';
+  const WB = `${WORKBOOK_PATH}:/workbook`;
+
+  // minimal valid empty workbook, uploaded once to create TimeTracker.xlsx
+  // (the Graph workbook API cannot operate on a zero-byte file)
+  const BLANK_XLSX_B64 = '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';
+
+  const TABLES = {
+    Sessions: ['Id', 'Date', 'Project', 'ProjectId', 'Description', 'Type',
+      'Start', 'End', 'DurationSeconds', 'DurationHMS', 'StartMs', 'EndMs'],
+    Projects: ['Id', 'Name', 'Color', 'Archived', 'CreatedAt', 'UpdatedAt'],
+    Deleted: ['Id', 'Kind', 'DeletedAt'],
+  };
+
+  let ms = {
+    clientId: '', account: '', accessToken: '', refreshToken: '',
+    expiresAt: 0, autoSync: true, lastSync: 0,
+    ...load(LS.ms, {}),
+  };
+  const saveMs = () => save(LS.ms, ms);
+  const msConnected = () => !!ms.refreshToken;
+
+  let syncing = false;
+  let autoSyncTimer = null;
+
+  function scheduleAutoSync() {
+    if (!msConnected() || !ms.autoSync) return;
+    clearTimeout(autoSyncTimer);
+    autoSyncTimer = setTimeout(() => syncNow(true), 3000);
+  }
+
+  /* ---- OAuth: authorization code + PKCE, no libraries ---- */
+
+  const b64url = (bytes) =>
+    btoa(String.fromCharCode(...new Uint8Array(bytes)))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+  const redirectUri = () => location.origin + location.pathname;
+
+  async function startConnect() {
+    const clientId = $('ms-client-id').value.trim();
+    if (!clientId) {
+      toast('Paste your Microsoft app Client ID first (see README for the one-time setup)');
+      return;
+    }
+    if (!window.crypto || !crypto.subtle) {
+      toast('Sync needs HTTPS (or localhost)');
+      return;
+    }
+    ms.clientId = clientId;
+    saveMs();
+    const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
+    sessionStorage.setItem('tt_pkce', verifier);
+    const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
+    location.href = `${MS_AUTH_BASE}/authorize?` + new URLSearchParams({
+      client_id: clientId,
+      response_type: 'code',
+      redirect_uri: redirectUri(),
+      scope: MS_SCOPES,
+      code_challenge: challenge,
+      code_challenge_method: 'S256',
+      prompt: 'select_account',
+    });
+  }
+
+  async function tokenRequest(params) {
+    const resp = await fetch(`${MS_AUTH_BASE}/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ client_id: ms.clientId, ...params }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error_description || data.error || 'Sign-in failed');
+    ms.accessToken = data.access_token;
+    if (data.refresh_token) ms.refreshToken = data.refresh_token;
+    ms.expiresAt = now() + (data.expires_in - 60) * 1000;
+    saveMs();
+  }
+
+  async function handleAuthRedirect() {
+    const params = new URLSearchParams(location.search);
+    const code = params.get('code');
+    const verifier = sessionStorage.getItem('tt_pkce');
+    if (!code || !verifier) {
+      if (params.get('error')) {
+        toast('Microsoft sign-in failed: ' + (params.get('error_description') || params.get('error')), 6000);
+        history.replaceState(null, '', redirectUri());
+      }
+      return;
+    }
+    sessionStorage.removeItem('tt_pkce');
+    history.replaceState(null, '', redirectUri());
+    try {
+      await tokenRequest({
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: redirectUri(),
+        code_verifier: verifier,
+      });
+      const me = await graphFetch('/me');
+      ms.account = me.displayName || me.userPrincipalName || 'Microsoft account';
+      saveMs();
+      renderSyncUI();
+      switchTab('reports');
+      toast(`Connected to OneDrive as ${ms.account}`);
+      syncNow();
+    } catch (e) {
+      toast('Could not connect: ' + e.message, 6000);
+    }
+  }
+
+  async function getAccessToken() {
+    if (ms.accessToken && now() < ms.expiresAt) return ms.accessToken;
+    await tokenRequest({
+      grant_type: 'refresh_token',
+      refresh_token: ms.refreshToken,
+      scope: MS_SCOPES,
+    });
+    return ms.accessToken;
+  }
+
+  function disconnect() {
+    ms = { ...ms, account: '', accessToken: '', refreshToken: '', expiresAt: 0, lastSync: 0 };
+    saveMs();
+    renderSyncUI();
+  }
+
+  /* ---- Graph helpers ---- */
+
+  async function graphFetch(path, opts = {}) {
+    const token = await getAccessToken();
+    const isBinary = opts.body instanceof Uint8Array;
+    const resp = await fetch(path.startsWith('http') ? path : GRAPH + path, {
+      ...opts,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(opts.body && !isBinary ? { 'Content-Type': 'application/json' } : {}),
+        ...(opts.headers || {}),
+      },
+    });
+    if (!resp.ok) {
+      let detail = resp.statusText;
+      try { detail = (await resp.json()).error.message; } catch { /* keep statusText */ }
+      const err = new Error(detail);
+      err.status = resp.status;
+      throw err;
+    }
+    if (resp.status === 204) return null;
+    return resp.json();
+  }
+
+  function b64ToBytes(b64) {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+
+  async function ensureWorkbook() {
+    try {
+      await graphFetch(WORKBOOK_PATH);
+    } catch (e) {
+      if (e.status !== 404) throw e;
+      await graphFetch(`${WORKBOOK_PATH}:/content`, {
+        method: 'PUT',
+        body: b64ToBytes(BLANK_XLSX_B64),
+        headers: { 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
+      });
+    }
+  }
+
+  const colLetter = (n) => String.fromCharCode(64 + n); // 1 → A (enough for our column counts)
+
+  async function ensureTables() {
+    const existing = (await graphFetch(`${WB}/tables?$select=name`)).value.map((t) => t.name);
+    for (const [name, cols] of Object.entries(TABLES)) {
+      if (existing.includes(name)) continue;
+      try {
+        await graphFetch(`${WB}/worksheets/add`, { method: 'POST', body: JSON.stringify({ name }) });
+      } catch (e) {
+        if (!/already exists/i.test(e.message) && e.status !== 409) throw e;
+      }
+      const range = `A1:${colLetter(cols.length)}1`;
+      await graphFetch(`${WB}/worksheets('${name}')/range(address='${range}')`, {
+        method: 'PATCH',
+        body: JSON.stringify({ values: [cols] }),
+      });
+      const table = await graphFetch(`${WB}/tables/add`, {
+        method: 'POST',
+        body: JSON.stringify({ address: `${name}!${range}`, hasHeaders: true }),
+      });
+      await graphFetch(`${WB}/tables('${encodeURIComponent(table.name)}')`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name }),
+      });
+    }
+  }
+
+  async function getTableRows(table) {
+    const rows = [];
+    let url = `${WB}/tables('${table}')/rows`;
+    while (url) {
+      const page = await graphFetch(url);
+      rows.push(...page.value.map((r) => r.values[0]));
+      url = page['@odata.nextLink'] || null;
+    }
+    return rows;
+  }
+
+  async function addTableRows(table, rows) {
+    // stay well under Graph's payload limits
+    for (let i = 0; i < rows.length; i += 50) {
+      await graphFetch(`${WB}/tables('${table}')/rows/add`, {
+        method: 'POST',
+        body: JSON.stringify({ values: rows.slice(i, i + 50) }),
+      });
+    }
+  }
+
+  async function deleteTableRowsByIds(table, ids) {
+    if (!ids.size) return;
+    const rows = await getTableRows(table);
+    const doomed = [];
+    rows.forEach((r, i) => { if (ids.has(String(r[0]))) doomed.push(i); });
+    // delete bottom-up so remaining indices stay valid
+    for (const i of doomed.reverse()) {
+      await graphFetch(`${WB}/tables('${table}')/rows/itemAt(index=${i})`, { method: 'DELETE' });
+    }
+  }
+
+  /* ---- row (de)serialization ---- */
+
+  const sessionToRow = (s) => [
+    s.id, isoLocal(s.start).slice(0, 10), projectName(s.projectId), s.projectId,
+    s.description, s.type, isoLocal(s.start), isoLocal(s.end),
+    s.durationSec, fmtHMS(s.durationSec), s.start, s.end,
+  ];
+  const rowToSession = (r) => ({
+    id: String(r[0]),
+    projectId: String(r[3]),
+    description: String(r[4] ?? ''),
+    type: String(r[5]),
+    start: Number(r[10]),
+    end: Number(r[11]),
+    durationSec: Number(r[8]),
+  });
+
+  const projectToRow = (p) => [
+    p.id, p.name, p.color, p.archived ? 1 : 0, p.createdAt, p.updatedAt || p.createdAt,
+  ];
+  const rowToProject = (r) => ({
+    id: String(r[0]),
+    name: String(r[1]),
+    color: String(r[2]),
+    archived: !!Number(r[3]),
+    createdAt: Number(r[4]),
+    updatedAt: Number(r[5]),
+  });
+
+  /* ---- the sync itself ---- */
+
+  async function syncNow(quiet = false) {
+    if (!msConnected()) {
+      toast('Connect to OneDrive first');
+      return;
+    }
+    if (syncing) return;
+    syncing = true;
+    const btn = $('ms-sync-now');
+    btn.disabled = true;
+    btn.textContent = 'Syncing…';
+    try {
+      await ensureWorkbook();
+      await ensureTables();
+
+      // 1. merge deletions: push local tombstones, learn remote ones
+      const remoteDel = await getTableRows('Deleted');
+      const delSessions = new Set(remoteDel.filter((r) => r[1] === 'session').map((r) => String(r[0])));
+      const delProjects = new Set(remoteDel.filter((r) => r[1] === 'project').map((r) => String(r[0])));
+      const newDelRows = [];
+      for (const id of tombstones.sessions) {
+        if (!delSessions.has(id)) { newDelRows.push([id, 'session', now()]); delSessions.add(id); }
+      }
+      for (const id of tombstones.projects) {
+        if (!delProjects.has(id)) { newDelRows.push([id, 'project', now()]); delProjects.add(id); }
+      }
+      if (newDelRows.length) await addTableRows('Deleted', newDelRows);
+
+      const nSessBefore = sessions.length;
+      const nProjBefore = projects.length;
+      sessions = sessions.filter((s) => !delSessions.has(s.id));
+      projects = projects.filter((p) => !delProjects.has(p.id));
+      if (sessions.length !== nSessBefore) saveSessions();
+      if (projects.length !== nProjBefore) saveProjects();
+
+      // 2. projects first, so imported sessions can resolve their names
+      const remoteProjRows = await getTableRows('Projects');
+      const remoteProj = new Map(remoteProjRows.map((r) => [String(r[0]), r]));
+      const pushProj = [];
+      for (const p of projects) {
+        const r = remoteProj.get(p.id);
+        if (!r) {
+          pushProj.push(projectToRow(p));
+          continue;
+        }
+        const remote = rowToProject(r);
+        if ((p.updatedAt || 0) > remote.updatedAt) {
+          await graphFetch(`${WB}/tables('Projects')/rows/itemAt(index=${remoteProjRows.indexOf(r)})`, {
+            method: 'PATCH',
+            body: JSON.stringify({ values: [projectToRow(p)] }),
+          });
+        } else if (remote.updatedAt > (p.updatedAt || 0)) {
+          Object.assign(p, remote);
+          saveProjects();
+        }
+      }
+      if (pushProj.length) await addTableRows('Projects', pushProj);
+      let importedProj = 0;
+      for (const [id, r] of remoteProj) {
+        if (!projects.some((p) => p.id === id) && !delProjects.has(id)) {
+          projects.push(rowToProject(r));
+          importedProj++;
+        }
+      }
+      if (importedProj) saveProjects();
+
+      // 3. sessions: append-only union by id
+      const remoteSessRows = await getTableRows('Sessions');
+      const remoteIds = new Set(remoteSessRows.map((r) => String(r[0])));
+      const localIds = new Set(sessions.map((s) => s.id));
+      const pushSess = sessions.filter((s) => !remoteIds.has(s.id)).map(sessionToRow);
+      if (pushSess.length) await addTableRows('Sessions', pushSess);
+      let importedSess = 0;
+      for (const r of remoteSessRows) {
+        const id = String(r[0]);
+        if (!localIds.has(id) && !delSessions.has(id)) {
+          sessions.push(rowToSession(r));
+          importedSess++;
+        }
+      }
+      if (importedSess) {
+        sessions.sort((a, b) => a.start - b.start);
+        saveSessions();
+      }
+
+      // 4. scrub tombstoned rows out of the sheet, then forget local tombstones
+      //    (the Deleted table remembers them for other devices)
+      if (tombstones.sessions.length) await deleteTableRowsByIds('Sessions', new Set(tombstones.sessions));
+      if (tombstones.projects.length) await deleteTableRowsByIds('Projects', new Set(tombstones.projects));
+      tombstones = { sessions: [], projects: [] };
+      saveTombstones();
+
+      ms.lastSync = now();
+      saveMs();
+      renderAll();
+      renderSyncUI();
+      if (!quiet || pushSess.length || importedSess || importedProj) {
+        toast(`Synced with OneDrive — ${pushSess.length} pushed, ${importedSess} pulled`);
+      }
+    } catch (e) {
+      if (e.status === 401 || /invalid_grant|AADSTS/i.test(e.message)) {
+        disconnect();
+        toast('OneDrive sign-in expired — please reconnect', 6000);
+      } else {
+        toast('Sync failed: ' + e.message, 6000);
+      }
+    } finally {
+      syncing = false;
+      btn.disabled = false;
+      btn.textContent = '↻ Sync now';
+    }
+  }
+
+  /* ---- sync UI ---- */
+
+  function renderSyncUI() {
+    const connected = msConnected();
+    $('sync-setup').classList.toggle('hidden', connected);
+    $('sync-connected').classList.toggle('hidden', !connected);
+    $('ms-client-id').value = ms.clientId || '';
+    if (connected) {
+      $('ms-account').textContent = ms.account || 'Microsoft account';
+      $('ms-last-sync').textContent = ms.lastSync
+        ? `Last synced ${fmtDate(ms.lastSync)} ${fmtTime(ms.lastSync)} · workbook: TimeTracker.xlsx in your OneDrive`
+        : 'Not synced yet';
+      $('ms-autosync').checked = !!ms.autoSync;
+    }
+  }
+
+  function bindSyncEvents() {
+    $('ms-connect').addEventListener('click', () => {
+      startConnect().catch((e) => toast(e.message, 5000));
+    });
+    $('ms-sync-now').addEventListener('click', () => syncNow());
+    $('ms-disconnect').addEventListener('click', () => {
+      if (confirm('Disconnect from OneDrive? Data on this device and in the spreadsheet is kept.')) {
+        disconnect();
+        toast('Disconnected from OneDrive');
+      }
+    });
+    $('ms-autosync').addEventListener('change', (e) => {
+      ms.autoSync = e.target.checked;
+      saveMs();
+    });
   }
 
   /* ================= form-state persistence ================= */
@@ -1002,6 +1440,10 @@
   renderAll();
   renderSettings();
   bindEvents();
+  bindSyncEvents();
+  renderSyncUI();
+  handleAuthRedirect();
+  if (msConnected() && ms.autoSync) syncNow(true);
 
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('sw.js').catch(() => {});

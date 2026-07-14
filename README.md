@@ -26,6 +26,11 @@ on your device (localStorage), and you can export everything as CSV.
   while the app was closed, the session is still logged correctly.
 - **Works offline** — it's a PWA with a service worker; after the first load
   it works with no connection.
+- **OneDrive / Excel sync (optional)** — connect your Microsoft account and
+  the app keeps an Excel workbook (`TimeTracker.xlsx`) in your OneDrive in
+  sync with your data. Every device you connect reads and writes the same
+  spreadsheet, so projects, sessions, and deletions sync across your browser
+  and iPhone — and you can open the workbook directly in Excel any time.
 
 ## Run it
 
@@ -62,6 +67,45 @@ per-device — export CSV to move data between devices.
   notifications.
 - The alarm sound is generated with the Web Audio API — no audio files, and
   it's unlocked by your first tap on Start (an iOS requirement).
+
+## OneDrive sync setup (one-time, ~5 minutes)
+
+The sync talks directly from your browser to Microsoft's API — there is no
+middleman server, so you need to register a (free) "app" with Microsoft once
+to get a Client ID:
+
+1. Go to <https://entra.microsoft.com> (or portal.azure.com) and sign in
+   with the same Microsoft account your OneDrive is on.
+2. Navigate to **Identity → Applications → App registrations → New registration**.
+3. Name: `TimeTracker` (anything works). Supported account types: choose
+   **"Personal Microsoft accounts only"** (or "Accounts in any organizational
+   directory and personal Microsoft accounts" if you also want work accounts).
+4. Under **Redirect URI**, pick platform **Single-page application (SPA)**
+   and enter the exact URL where the app is hosted, e.g.
+   `https://<username>.github.io/timetracker/`. (Add `http://localhost:8000/`
+   too if you want to test locally.) The SPA platform type is required — it's
+   what allows the browser to talk to Microsoft's token endpoint.
+5. Click **Register**, then copy the **Application (client) ID** from the
+   overview page.
+6. In TimeTracker, open **Reports → OneDrive sync**, paste the Client ID,
+   and hit **Connect to OneDrive**. Sign in, and you're done — the app
+   creates `TimeTracker.xlsx` in your OneDrive root and starts syncing.
+
+On each additional device, just paste the same Client ID and connect.
+Permissions used: `Files.ReadWrite` (to manage the workbook) and
+`User.Read` (to show which account is connected).
+
+### How the sync works
+
+- The workbook has three tables: **Sessions**, **Projects**, and **Deleted**.
+- Sessions are append-only and merged by id, so devices can work offline and
+  reconcile later. Project edits (rename/color/archive) resolve by
+  last-write-wins. Deletions are recorded in the Deleted table so they
+  propagate to every device instead of resurrecting.
+- Sync runs automatically after each saved session (can be toggled off) and
+  on app start; there's also a manual **Sync now** button.
+- You can *read* the workbook in Excel freely. Avoid hand-editing the table
+  rows though — the app treats the tables as its database.
 
 ## CSV format
 

@@ -182,6 +182,39 @@
       </div>
 
       <div class="card">
+        <h2>☁️ OneDrive sync</h2>
+        <p class="sync-blurb">
+          Sync your projects and sessions to an Excel workbook
+          (<code>TimeTracker.xlsx</code>) in your OneDrive. Every device you
+          connect reads and writes the same spreadsheet, so your data stays
+          in sync — and you can open the workbook in Excel any time.
+        </p>
+
+        <div id="sync-setup">
+          <div class="form-group">
+            <label for="ms-client-id">Microsoft app Client ID <span class="muted">(one-time setup — see README)</span></label>
+            <input type="text" id="ms-client-id" placeholder="e.g. 12345678-abcd-…" autocomplete="off" spellcheck="false">
+          </div>
+          <button class="btn btn-primary" id="ms-connect">Connect to OneDrive</button>
+        </div>
+
+        <div id="sync-connected" class="hidden">
+          <div class="sync-status">
+            <div><span class="sync-ok">●</span> Connected as <strong id="ms-account"></strong></div>
+            <div class="muted" id="ms-last-sync"></div>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="ms-autosync">
+            <span>Sync automatically after each session</span>
+          </label>
+          <div class="btn-row" style="justify-content: flex-start;">
+            <button class="btn btn-primary" id="ms-sync-now">↻ Sync now</button>
+            <button class="btn btn-ghost" id="ms-disconnect">Disconnect</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
         <h2>Sessions <span class="muted" id="session-count"></span></h2>
         <div class="table-wrap">
           <table class="session-table">

@@ -285,6 +285,13 @@ input:focus, select:focus, textarea:focus {
 }
 .bar-fill { height: 100%; border-radius: 999px; }
 
+/* ============ onedrive sync ============ */
+.sync-blurb { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 14px; line-height: 1.5; }
+.sync-blurb code { background: var(--bg-input); padding: 1px 5px; border-radius: 5px; font-size: 0.9em; }
+.sync-status { margin-bottom: 12px; font-size: 0.9rem; display: flex; flex-direction: column; gap: 4px; }
+.sync-ok { color: var(--green); }
+#sync-connected .toggle { margin-bottom: 14px; }
+
 .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .session-table {
   width: 100%;
